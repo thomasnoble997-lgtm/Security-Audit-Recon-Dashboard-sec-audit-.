@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Tool Name: sec-audit
+# Description: Interactive Automated Security Audit & Recon Dashboard Generator
+# Usage: Just run './sec-audit' and enter the target when prompted.
+# ==============================================================================
+
+echo "========================================"
+echo "       INTERACTIVE SECURITY AUDIT       "
+echo "========================================"
+read -p "Enter target IP or domain (e.g., 127.0.0.1 or example.com): " TARGET
+
+if [[ -z "$TARGET" ]]; then
+    echo "[-] Error: No target provided."
+    exit 1
+fi
+
+TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
+OUTPUT_FILE="audit_report_$(date +"%Y%m%d_%H%M%S").html"
+
+echo "[*] Starting Security Audit for target: $TARGET"
+echo "[*] Generating report: $OUTPUT_FILE"
+
+# Start HTML Header
+cat <<EOF > "$OUTPUT_FILE"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Security Audit Report - $TARGET</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f6f9; color: #333; margin: 20px; }
+        h1 { color: #2c3e50; }
+        .card { background: #fff; padding: 15px; margin-bottom: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .success { color: green; font-weight: bold; }
+        .warn { color: orange; font-weight: bold; }
+        pre { background: #272822; color: #f8f8f2; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🛡️ Automated Security Audit Report</h1>
+    <p><strong>Target:</strong> $TARGET | <strong>Date:</strong> $TIMESTAMP</p>
+    <hr>
+EOF
+
+# 1. Host Ping / Reachability Test
+echo "[*] Checking target reachability..."
+echo '<div class="card"><h2>1. Host Reachability</h2>' >> "$OUTPUT_FILE"
+if ping -c 1 -W 2 "$TARGET" &>/dev/null; then
+    echo '<p class="success">[+] Host is responsive to ICMP ping.</p>' >> "$OUTPUT_FILE"
+else
+    echo '<p class="warn">[-] Host did not respond to ICMP ping (may be down or blocking ICMP).</p>' >> "$OUTPUT_FILE"
+fi
+echo '</div>' >> "$OUTPUT_FILE"
+
+# 2. Basic HTTP Security Headers Check
+echo "[*] Checking HTTP response headers..."
+echo '<div class="card"><h2>2. HTTP Security Headers Analysis</h2><pre>' >> "$OUTPUT_FILE"
+HEADERS=$(curl -sI -m 5 "http://$TARGET" 2>/dev/null)
+
+if [[ -n "$HEADERS" ]]; then
+    echo "$HEADERS" >> "$OUTPUT_FILE"
+    echo '</pre>' >> "$OUTPUT_FILE"
+    
+    # Check specific security headers
+    echo '<h3>Header Security Summary:</h3><ul>' >> "$OUTPUT_FILE"
+    for header in "X-Frame-Options" "Strict-Transport-Security" "Content-Security-Policy" "X-Content-Type-Options"; do
+        if echo "$HEADERS" | grep -iq "$header"; then
+            echo "<li><span class=\"success\">✓ $header</span> is present.</li>" >> "$OUTPUT_FILE"
+        else
+            echo "<li><span class=\"warn\">✗ $header</span> is missing.</li>" >> "$OUTPUT_FILE"
+        fi
+    done
+    echo '</ul>' >> "$OUTPUT_FILE"
+else
+    echo "No HTTP server responding on port 80 or connection timed out." >> "$OUTPUT_FILE"
+    echo '</pre>' >> "$OUTPUT_FILE"
+fi
+echo '</div>' >> "$OUTPUT_FILE"
+
+# 3. Fast TCP Common Port Check
+echo "[*] Scanning common services..."
+echo '<div class="card"><h2>3. Open Common Ports Check</h2><ul>' >> "$OUTPUT_FILE"
+PORTS=(21 22 80 443 8080 3306)
+
+for port in "${PORTS[@]}"; do
+    (timeout 1 bash -c "echo > /dev/tcp/$TARGET/$port" 2>/dev/null) && \
+        echo "<li>Port <strong>$port</strong>: <span class=\"success\">OPEN</span></li>" >> "$OUTPUT_FILE" || \
+        echo "<li>Port <strong>$port</strong>: <span class=\"warn\">CLOSED / FILTERED</span></li>" >> "$OUTPUT_FILE"
+done
+echo '</ul></div>' >> "$OUTPUT_FILE"
+
+# Close HTML Footer
+cat <<EOF >> "$OUTPUT_FILE"
+</body>
+</html>
+EOF
+
+echo "[+] Audit complete! Open '$OUTPUT_FILE' in your web browser to view results."
